@@ -1,4 +1,7 @@
+import { UserRole } from '../enums';
+
 export interface IJwtPayload {
-    userId: number;
-    tenantId: number;
+  userId: number;
+  login: string;
+  role: UserRole;
 }

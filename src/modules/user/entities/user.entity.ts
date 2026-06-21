@@ -1,29 +1,30 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
-import { UserRole } from "../../../common/enums";
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { UserRole } from '@common';
 
-@Entity("users")
+@Entity('users')
 export class User {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column({ type: 'varchar', length: 255 })
-    name: string;
+  @Column({ type: 'varchar', length: 255 })
+  name: string;
 
-    @Column({ type: 'varchar', length: 255 })
-    login: string;
+  @Column({ type: 'varchar', length: 255, unique: true })
+  login: string;
 
-    @Column({ type: 'text' })
-    password: string;
+  @Column({ type: 'text', select: false })
+  password: string;
 
-    @Column({ type: 'enum', enum: UserRole })
-    role: UserRole;
+  @Column({ type: 'enum', enum: UserRole })
+  role: UserRole;
 
-    @Column({ type: 'text', nullable: true })
-    refreshToken: string| null;
+  @Column({ type: 'text', nullable: true, select: false })
+  refreshToken: string | null;
 
-    @CreateDateColumn({ type: 'timestamp' })
-    createdAt: Date;
+  @CreateDateColumn({ type: 'timestamp' })
+  createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
-    updatedAt: Date;
+  @UpdateDateColumn({ type: 'timestamp' })
+  updatedAt: Date;
 }
+

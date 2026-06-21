@@ -20,6 +20,9 @@ async function bootstrap() {
   const host = appConfig.host ?? 'localhost';
   const url = appConfig.url ?? `http://${host}:${port}/`;
   const prefix = appConfig.prefix ?? 'api/';
+  const globalPrefix = prefix.replace(/\/$/, '');
+
+  app.setGlobalPrefix(globalPrefix);
 
   // Enable CORS
   app.enableCors({

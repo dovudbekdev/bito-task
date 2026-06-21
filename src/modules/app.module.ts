@@ -1,8 +1,9 @@
-import { RequestIdMiddleware } from '@common';
+import { RequestIdMiddleware, JwtAuthGuard, RolesGuard } from '@common';
 import { AllConfigType, configs, envValidationSchema } from '@config';
 import { typeormOptions } from '@database';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
@@ -19,8 +20,12 @@ import { AuthModule } from './auth/auth.module';
     useFactory: (configService: ConfigService<AllConfigType>) => typeormOptions(configService),
   }),
   UserModule,
-  AuthModule
+  AuthModule,
 ],
+  providers: [
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
