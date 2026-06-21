@@ -17,13 +17,13 @@ export class ProductsController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CASHIER)
   async findAllProducts(@CurrentUser() actor: IJwtPayload){
     return this.productsService.findAllProducts(actor);
   }
   
   @Get(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CASHIER)
   async findProductById(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: IJwtPayload){
     return this.productsService.findProductByIdOrFail(id, actor);
   }

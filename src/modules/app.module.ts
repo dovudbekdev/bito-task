@@ -9,6 +9,7 @@ import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantModule } from './tenant/tenant.module';
 import { ProductsModule } from './products/products.module';
+import { OrderModule } from './order/order.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -25,6 +26,7 @@ import { ProductsModule } from './products/products.module';
   AuthModule,
   TenantModule,
   ProductsModule,
+  OrderModule,
 ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

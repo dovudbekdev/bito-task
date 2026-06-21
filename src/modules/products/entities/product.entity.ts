@@ -1,5 +1,6 @@
+import { OrderItem } from "../../order/entities/order-item.entity";
 import { Tenant } from "../../tenant/entities/tenant.entity";
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from "typeorm";
 
 @Entity("products")
 export class Product {
@@ -31,4 +32,7 @@ export class Product {
     @ManyToOne(() => Tenant, (tenant) => tenant.products, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'tenant_id' })
     tenant: Tenant;
+
+    @OneToMany(() => OrderItem, (item) => item.product)
+    orderItems: OrderItem[];
 }

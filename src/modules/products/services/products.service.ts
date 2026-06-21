@@ -34,8 +34,8 @@ export class ProductsService {
 
   async findAllProducts(actor: IJwtPayload){
     const tenantId = requireActiveTenant(actor);
-    const tenant = await this.tenantService.findByIdOrFail(tenantId);
-    return this.productRepository.find({ where: { tenant } });
+    await this.tenantService.findByIdOrFail(tenantId);
+    return this.productRepository.find({ where: { tenant: { id: tenantId } } });
   }
 
   async findProductByIdOrFail(id: number, actor: IJwtPayload){

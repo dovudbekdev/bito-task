@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { User } from '../../user/entities/user.entity';
 import { Product } from '../../products/entities/product.entity';
+import { Order } from '../../order/entities/order.entity';
 
 @Entity('tenants')
 export class Tenant {
@@ -38,4 +39,7 @@ export class Tenant {
     // Relations
     @OneToMany(() => Product, (product) => product.tenant)
     products: Product[];
+
+    @OneToMany(() => Order, (order) => order.tenant)
+    orders: Order[];
 }
