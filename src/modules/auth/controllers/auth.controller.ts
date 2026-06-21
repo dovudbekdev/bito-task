@@ -14,6 +14,7 @@ import {
   LoginDto,
   RefreshTokenDto,
   ResetPasswordDto,
+  SwitchTenantDto,
 } from '../dto';
 import { AuthService } from '../services';
 
@@ -38,6 +39,16 @@ export class AuthController {
   @Post('refresh')
   refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto);
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @Post('switch-tenant')
+  switchTenant(
+    @CurrentUser() actor: IJwtPayload,
+    @Body() dto: SwitchTenantDto,
+  ) {
+    return this.authService.switchTenant(actor, dto);
   }
 
   @ApiBearerAuth()

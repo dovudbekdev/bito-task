@@ -7,13 +7,15 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { AllConfigType } from '@config';
-import { IJwtPayload } from '@common';
+import { assertUserOwnsTenant, IJwtPayload, UserRole } from '@common';
+import { TenantService } from '../../tenant/services';
 import { UserService } from '../../user/services';
 import {
   ChangePasswordDto,
   LoginDto,
   RefreshTokenDto,
   ResetPasswordDto,
+  SwitchTenantDto,
 } from '../dto';
 
 const BCRYPT_ROUNDS = 10;
@@ -22,6 +24,7 @@ const BCRYPT_ROUNDS = 10;
 export class AuthService {
   constructor(
     private readonly userService: UserService,
+    private readonly tenantService: TenantService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AllConfigType>,
   ) {}
@@ -39,18 +42,31 @@ export class AuthService {
       throw new UnauthorizedException('Invalid login or password');
     }
 
-    const tokens = await this.generateTokens(user.id, user.login, user.role);
+    const tenantId = this.resolveTenantIdForUser(user);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.login,
+      user.role,
+      tenantId,
+    );
     await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-    return {
+    const response: Record<string, unknown> = {
       ...tokens,
       user: {
         id: user.id,
         name: user.name,
         login: user.login,
         role: user.role,
+        tenantId,
       },
     };
+
+    if (user.role === UserRole.ADMIN) {
+      response.tenants = await this.tenantService.findByUserId(user.id);
+    }
+
+    return response;
   }
 
   async logout(userId: number): Promise<void> {
@@ -85,17 +101,58 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const tokens = await this.generateTokens(user.id, user.login, user.role);
+    const tenantId = payload.tenantId ?? this.resolveTenantIdForUser(user);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.login,
+      user.role,
+      tenantId,
+    );
     await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-    return {
+    const response: Record<string, unknown> = {
       ...tokens,
       user: {
         id: user.id,
         name: user.name,
         login: user.login,
         role: user.role,
+        tenantId,
       },
+    };
+
+    if (user.role === UserRole.ADMIN) {
+      response.tenants = await this.tenantService.findByUserId(user.id);
+    }
+
+    return response;
+  }
+
+  async switchTenant(actor: IJwtPayload, dto: SwitchTenantDto) {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admin can switch tenant');
+    }
+
+    const tenant = await this.tenantService.findByIdOrFail(dto.tenantId);
+    assertUserOwnsTenant(actor, tenant);
+
+    const tokens = await this.generateTokens(
+      actor.userId,
+      actor.login,
+      actor.role,
+      tenant.id,
+    );
+    await this.saveRefreshToken(actor.userId, tokens.refreshToken);
+
+    return {
+      ...tokens,
+      user: {
+        id: actor.userId,
+        login: actor.login,
+        role: actor.role,
+        tenantId: tenant.id,
+      },
+      tenant,
     };
   }
 
@@ -133,6 +190,7 @@ export class AuthService {
 
     try {
       this.userService.assertCanManage(actor, targetUser);
+      this.userService.assertTenantAccess(actor, targetUser);
     } catch {
       throw new ForbiddenException('You are not allowed to reset this user password');
     }
@@ -142,9 +200,25 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
-  private async generateTokens(userId: number, login: string, role: IJwtPayload['role']) {
+  private resolveTenantIdForUser(user: {
+    role: UserRole;
+    tenantId: number | null;
+  }): number | null {
+    if (user.role === UserRole.CASHIER) {
+      return user.tenantId;
+    }
+
+    return null;
+  }
+
+  private async generateTokens(
+    userId: number,
+    login: string,
+    role: IJwtPayload['role'],
+    tenantId?: number | null,
+  ) {
     const jwtConfig = this.configService.get('jwt', { infer: true })!;
-    const payload: IJwtPayload = { userId, login, role };
+    const payload: IJwtPayload = { userId, login, role, tenantId: tenantId ?? null };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {

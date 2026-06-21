@@ -1,5 +1,15 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { UserRole } from '@common';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 
 @Entity('users')
 export class User {
@@ -18,6 +28,9 @@ export class User {
   @Column({ type: 'enum', enum: UserRole })
   role: UserRole;
 
+  @Column({ name: 'tenant_id', nullable: true })
+  tenantId: number | null;
+
   @Column({ type: 'text', nullable: true, select: false })
   refreshToken: string | null;
 
@@ -26,5 +39,14 @@ export class User {
 
   @UpdateDateColumn({ type: 'timestamp' })
   updatedAt: Date;
-}
 
+  @OneToMany(() => Tenant, (tenant) => tenant.user)
+  tenants: Tenant[];
+
+  @ManyToOne(() => Tenant, (tenant) => tenant.cashiers, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'tenant_id' })
+  tenant: Tenant;
+}

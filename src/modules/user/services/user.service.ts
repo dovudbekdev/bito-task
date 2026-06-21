@@ -9,10 +9,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 import {
+  assertSameTenantScope,
   canCreateRole,
   canManageRole,
   canViewRole,
   IJwtPayload,
+  requireActiveTenant,
   UserRole,
 } from '@common';
 import { CreateUserDto, QueryUsersDto, UpdateUserDto } from '../dto';
@@ -34,6 +36,10 @@ export class UserService {
       throw new ForbiddenException('Super admin cannot be created');
     }
 
+    if (dto.role === UserRole.CASHIER && actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admin can create cashiers');
+    }
+
     if (!canCreateRole(actor.role, dto.role)) {
       throw new ForbiddenException('You are not allowed to create this role');
     }
@@ -48,11 +54,18 @@ export class UserService {
 
     const password = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
+    let tenantId: number | null = null;
+
+    if (dto.role === UserRole.CASHIER) {
+      tenantId = requireActiveTenant(actor);
+    }
+
     const user = this.userRepository.create({
       name: dto.name,
       login: dto.login,
       password,
       role: dto.role,
+      tenantId,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -70,6 +83,18 @@ export class UserService {
       qb.andWhere('user.role != :superAdminRole', {
         superAdminRole: UserRole.SUPER_ADMIN,
       });
+    }
+
+    if (actor.role === UserRole.ADMIN) {
+      if (!actor.tenantId) {
+        return {
+          data: [],
+          meta: { total: 0, page, limit, totalPages: 0 },
+        };
+      }
+
+      qb.andWhere('user.tenantId = :tenantId', { tenantId: actor.tenantId });
+      qb.andWhere('user.role = :cashierRole', { cashierRole: UserRole.CASHIER });
     }
 
     if (query.role) {
@@ -96,12 +121,14 @@ export class UserService {
   async findOne(actor: IJwtPayload, id: number): Promise<SafeUser> {
     const user = await this.findByIdOrFail(id);
     this.assertCanView(actor, user);
+    assertSameTenantScope(actor, user);
     return this.toSafeUser(user);
   }
 
   async update(actor: IJwtPayload, id: number, dto: UpdateUserDto): Promise<SafeUser> {
     const user = await this.findByIdOrFail(id);
     this.assertCanManage(actor, user);
+    this.assertTenantAccess(actor, user);
 
     if (dto.role === UserRole.SUPER_ADMIN) {
       throw new ForbiddenException('Cannot assign super admin role');
@@ -153,6 +180,7 @@ export class UserService {
     }
 
     this.assertCanManage(actor, user);
+    this.assertTenantAccess(actor, user);
     await this.userRepository.remove(user);
   }
 
@@ -207,6 +235,7 @@ export class UserService {
       login: data.login,
       password,
       role: data.role,
+      tenantId: null,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -217,6 +246,10 @@ export class UserService {
     if (!canManageRole(actor.role, target.role)) {
       throw new ForbiddenException('You are not allowed to manage this user');
     }
+  }
+
+  assertTenantAccess(actor: IJwtPayload, target: User): void {
+    assertSameTenantScope(actor, target);
   }
 
   private assertCanView(actor: IJwtPayload, target: User): void {

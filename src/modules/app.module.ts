@@ -7,6 +7,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
+import { TenantModule } from './tenant/tenant.module';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -21,6 +23,8 @@ import { AuthModule } from './auth/auth.module';
   }),
   UserModule,
   AuthModule,
+  TenantModule,
+  ProductsModule,
 ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
