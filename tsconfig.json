@@ -10,12 +10,20 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
+    "paths": {
+      "@": ["./src/"],
+      "@common": ["./src/common"],
+      "@config": ["./src/config"],
+      "@database": ["./src/database"],
+      "@modules": ["./src/modules"]
+    },
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "esModuleInterop": true
   }
 }
