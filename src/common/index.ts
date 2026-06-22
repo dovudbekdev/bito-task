@@ -6,3 +6,4 @@ export * from './guards';
 export * from './interfaces';
 export * from './interceptors';
 export * from './middlewares';
+export * from './utils';

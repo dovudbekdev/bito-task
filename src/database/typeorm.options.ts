@@ -15,7 +15,10 @@ export function typeormOptions(
     url: db.dbUrl,
     ssl: db.ssl ? { rejectUnauthorized: false } : false,
     autoLoadEntities: true,
-    synchronize: true,
+    synchronize: false,
+    migrationsRun: false,
+    migrations: ['dist/database/migrations/*.js'],
+    migrationsTableName: 'typeorm_migrations',
     logging: false,
     extra: {
       family: 4,

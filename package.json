@@ -10,7 +10,14 @@
     "start": "nest start",
     "start:dev": "cross-env NODE_ENV=development nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main"
+    "start:prod": "node dist/main",
+    "migration:generate": "cross-env TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:generate -d src/database/data-source.ts",
+    "migration:run": "cross-env TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run -d src/database/data-source.migration.ts",
+    "migration:run:prod": "typeorm migration:run -d dist/database/data-source.migration.js",
+    "migration:revert": "cross-env TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert -d src/database/data-source.migration.ts",
+    "migration:show": "cross-env TS_NODE_TRANSPILE_ONLY=true node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:show -d src/database/data-source.migration.ts",
+    "db:seed": "cross-env TS_NODE_TRANSPILE_ONLY=true ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts",
+    "db:seed:prod": "node dist/database/seeds/run-seed.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

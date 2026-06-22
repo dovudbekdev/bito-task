@@ -10,7 +10,7 @@ import {
 } from '@common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const logger = new Logger('BOOTSTRAP');
 
   const config = app.get(ConfigService<AllConfigType>);
@@ -28,7 +28,7 @@ async function bootstrap() {
   app.enableCors({
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'x-request-id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'x-request-id', 'x-signature'],
     credentials: true,
   });
 

@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Local-only scripts (secrets, dev helpers)
+/scripts/local/
+
 # temp directory
 .temp
 .tmp

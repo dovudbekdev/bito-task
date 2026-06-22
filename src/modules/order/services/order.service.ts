@@ -8,11 +8,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   assertAtLeastOneUpdateField,
   assertCanModifyOrder,
+  calculateOrderCost,
   IJwtPayload,
   isFinalOrderStatus,
   isValidStatusTransition,
   OrderStatus,
   requireActiveTenant,
+  sanitizeOrder,
   UserRole,
 } from '@common';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
@@ -43,7 +45,7 @@ export class OrderService {
 
     const mergedItems = this.mergeDuplicateItems(dto.items);
 
-    return this.dataSource.transaction(async (manager) => {
+    const order = await this.dataSource.transaction(async (manager) => {
       const productsMap = await this.loadAndValidateProducts(
         tenantId,
         mergedItems,
@@ -51,7 +53,7 @@ export class OrderService {
       );
 
       const orderRepo = manager.getRepository(Order);
-      const order = orderRepo.create({
+      const created = orderRepo.create({
         status: OrderStatus.PENDING_PAYMENT,
         tenant: { id: tenantId },
         cashier: { id: actor.userId },
@@ -59,10 +61,10 @@ export class OrderService {
         totalQuantity: 0,
       });
 
-      const itemEntities = this.buildOrderItems(order, productsMap, mergedItems);
-      this.recalculateTotals(order, itemEntities);
+      const itemEntities = this.buildOrderItems(created, productsMap, mergedItems);
+      this.recalculateTotals(created, itemEntities);
 
-      const savedOrder = await orderRepo.save(order);
+      const savedOrder = await orderRepo.save(created);
       const orderItemRepo = manager.getRepository(OrderItem);
 
       await orderItemRepo.save(
@@ -72,6 +74,8 @@ export class OrderService {
 
       return this.findOrderByIdOrFail(savedOrder.id, actor, manager);
     });
+
+    return sanitizeOrder(order, actor.role);
   }
 
   async findAll(actor: IJwtPayload) {
@@ -89,11 +93,62 @@ export class OrderService {
       qb.andWhere('order.tenant_id = :tenantId', { tenantId });
     }
 
-    return qb.orderBy('order.createdAt', 'DESC').getMany();
+    const orders = await qb.orderBy('order.createdAt', 'DESC').getMany();
+    return orders.map((order) => sanitizeOrder(order, actor.role));
   }
 
   async findOne(actor: IJwtPayload, id: number) {
-    return this.findOrderByIdOrFail(id, actor);
+    const order = await this.findOrderByIdOrFail(id, actor);
+    return sanitizeOrder(order, actor.role);
+  }
+
+  async getReceipt(actor: IJwtPayload, id: number) {
+    const order = await this.findOrderByIdOrFail(id, actor);
+
+    if (order.status !== OrderStatus.PAID) {
+      throw new BadRequestException('Receipt is only available for paid orders');
+    }
+
+    const baseReceipt = {
+      orderId: order.id,
+      paidAt: order.paidAt,
+      tenantName: order.tenant.name,
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        lineTotal: Number(item.lineTotal),
+      })),
+      totalAmount: Number(order.totalAmount),
+      totalQuantity: order.totalQuantity,
+    };
+
+    if (actor.role === UserRole.CASHIER) {
+      return baseReceipt;
+    }
+
+    const totalCost = calculateOrderCost(order.items);
+    const totalRevenue = Number(order.totalAmount);
+
+    return {
+      ...baseReceipt,
+      totalCost,
+      totalProfit: totalRevenue - totalCost,
+    };
+  }
+
+  async findByIdForWebhook(
+    orderId: number,
+    manager?: EntityManager,
+  ): Promise<Order | null> {
+    const orderRepo = manager
+      ? manager.getRepository(Order)
+      : this.orderRepository;
+
+    return orderRepo.findOne({
+      where: { id: orderId },
+      relations: { tenant: true },
+    });
   }
 
   async update(actor: IJwtPayload, id: number, dto: UpdateOrderDto) {
@@ -101,21 +156,27 @@ export class OrderService {
     const hasStatusUpdate = dto.status !== undefined;
     assertAtLeastOneUpdateField(hasItemsUpdate, hasStatusUpdate);
 
-    return this.dataSource.transaction(async (manager) => {
-      const order = await this.findOrderByIdOrFail(id, actor, manager);
-      assertCanModifyOrder(actor, order);
+    if (hasStatusUpdate && dto.status === OrderStatus.PAID) {
+      throw new BadRequestException(
+        'Order can only be paid via payment webhook',
+      );
+    }
 
-      if (hasItemsUpdate && isFinalOrderStatus(order.status)) {
+    const order = await this.dataSource.transaction(async (manager) => {
+      const existing = await this.findOrderByIdOrFail(id, actor, manager);
+      assertCanModifyOrder(actor, existing);
+
+      if (hasItemsUpdate && isFinalOrderStatus(existing.status)) {
         throw new BadRequestException('Cannot modify a paid or cancelled order');
       }
 
-      if (hasStatusUpdate && isFinalOrderStatus(order.status)) {
+      if (hasStatusUpdate && isFinalOrderStatus(existing.status)) {
         throw new BadRequestException('Cannot modify a paid or cancelled order');
       }
 
       if (
         hasStatusUpdate &&
-        !isValidStatusTransition(order.status, dto.status!)
+        !isValidStatusTransition(existing.status, dto.status!)
       ) {
         throw new BadRequestException('Invalid status transition');
       }
@@ -125,23 +186,23 @@ export class OrderService {
       const willCancel = dto.status === OrderStatus.CANCELLED;
 
       if (hasItemsUpdate) {
-        await this.restoreStockFromItems(order.items, manager);
+        await this.restoreStockFromItems(existing.items, manager);
 
         const mergedItems = this.mergeDuplicateItems(dto.items!);
         const productsMap = await this.loadAndValidateProducts(
-          order.tenant.id,
+          existing.tenant.id,
           mergedItems,
           manager,
         );
 
-        await orderItemRepo.delete({ order: { id: order.id } });
+        await orderItemRepo.delete({ order: { id: existing.id } });
 
         const itemEntities = this.buildOrderItems(
-          order,
+          existing,
           productsMap,
           mergedItems,
         );
-        this.recalculateTotals(order, itemEntities);
+        this.recalculateTotals(existing, itemEntities);
 
         await orderItemRepo.save(
           itemEntities.map((item) => orderItemRepo.create(item)),
@@ -154,19 +215,18 @@ export class OrderService {
 
       if (dto.status === OrderStatus.CANCELLED) {
         if (!hasItemsUpdate) {
-          await this.restoreStockFromItems(order.items, manager);
+          await this.restoreStockFromItems(existing.items, manager);
         }
 
-        order.status = OrderStatus.CANCELLED;
-      } else if (dto.status === OrderStatus.PAID) {
-        order.status = OrderStatus.PAID;
-        order.paidAt = new Date();
+        existing.status = OrderStatus.CANCELLED;
       }
 
-      await orderRepo.save(order);
+      await orderRepo.save(existing);
 
       return this.findOrderByIdOrFail(id, actor, manager);
     });
+
+    return sanitizeOrder(order, actor.role);
   }
 
   async delete(actor: IJwtPayload, id: number) {
@@ -242,6 +302,7 @@ export class OrderService {
     const productIds = items.map((item) => item.productId);
     const products = await manager.getRepository(Product).find({
       where: { id: In(productIds), tenant: { id: tenantId } },
+      lock: { mode: 'pessimistic_write' },
     });
 
     const productsMap = new Map(products.map((product) => [product.id, product]));
@@ -325,7 +386,10 @@ export class OrderService {
         continue;
       }
 
-      const product = await productRepo.findOne({ where: { id: productId } });
+      const product = await productRepo.findOne({
+        where: { id: productId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
       if (product) {
         product.quantity += item.quantity;
