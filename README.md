@@ -4,32 +4,70 @@ NestJS asosidagi multi-tenant POS SaaS REST API.
 
 Arxitektura va biznes qarorlari: [DECISIONS.md](DECISIONS.md)
 
-## Docker bilan ishga tushirish
+## Docker bilan boshqarish
+
+Loyiha ikkita konteynerda ishlaydi:
+
+| Servis | Vazifasi | Port |
+|--------|----------|------|
+| `postgres` | PostgreSQL 16 ma'lumotlar bazasi | ichki tarmoq (`5432`) |
+| `app` | NestJS API (production build) | `3000` (host) |
+
+Ma'lumotlar `postgres_data` nomli Docker volume'da saqlanadi.
 
 ### Talablar
 
 - [Docker](https://docs.docker.com/get-docker/) (v20+)
 - [Docker Compose](https://docs.docker.com/compose/) (v2+)
 
-### 1. Muhit o'zgaruvchilarini sozlash
+Tekshirish:
 
 ```bash
-cp .env.docker.example .env
+docker --version
+docker compose version
 ```
 
-`.env` faylida quyidagilarni o'zgartiring:
+### Birinchi marta sozlash
 
-- `JWT_ACCESS_SECRET` va `JWT_REFRESH_SECRET` — kamida 20 belgili kuchli qiymatlar
-- `SUPER_ADMIN_LOGIN` va `SUPER_ADMIN_PASSWORD` — birinchi super-admin uchun
-- `PAYMENT_WEBHOOK_SECRET` — webhook imzosi uchun (min 20 belgi)
+```bash
+cp .env.example .env
+```
 
-### 2. Ishga tushirish
+`.env` faylida Docker uchun quyidagilarni to'ldiring:
+
+```env
+# DB host "postgres" — docker-compose servis nomi (localhost emas!)
+DB_URL=postgresql://bito:bito_secret@postgres:5432/bito_task
+
+JWT_ACCESS_SECRET=<kamida 20 belgi>
+JWT_REFRESH_SECRET=<kamida 20 belgi>
+SUPER_ADMIN_LOGIN=admin
+SUPER_ADMIN_PASSWORD=<kuchli parol>
+PAYMENT_WEBHOOK_SECRET=<kamida 20 belgi>
+```
+
+`bito` / `bito_secret` / `bito_task` qiymatlari `docker-compose.yml` dagi `postgres` servisi bilan mos kelishi kerak.
+
+### Ishga tushirish
 
 ```bash
 docker compose up -d --build
 ```
 
-### 3. Tekshirish
+| Flag | Ma'nosi |
+|------|---------|
+| `up` | Konteynerlarni ko'tarish |
+| `-d` | Fon rejimida (detached) |
+| `--build` | Image'ni qayta qurish |
+
+App ishga tushganda `docker-entrypoint.sh` avtomatik:
+
+1. `migration:run:prod` — DB schema yaratadi/yangilaydi
+2. `node dist/main` — API serverni ishga tushiradi
+
+Birinchi marta super-admin `.env` dagi login/parol bilan yaratiladi.
+
+### Tekshirish
 
 | Resurs | URL |
 |--------|-----|
@@ -37,25 +75,108 @@ docker compose up -d --build
 | API | http://localhost:3000/api/ |
 
 ```bash
-docker compose logs -f app
-docker compose ps
+docker compose ps              # konteynerlar holati
+docker compose logs -f app     # app loglari (chiqish: Ctrl+C)
+docker compose logs postgres   # DB loglari
 ```
 
-Birinchi marta ishga tushganda migrationlar avtomatik ishga tushadi va super-admin seed qilinadi.
-
-### Mock ma'lumotlar (ixtiyoriy)
-
-Demo tenant, kassir va mahsulotlar uchun:
+### Kundalik buyruqlar
 
 ```bash
+# To'xtatish (DB ma'lumotlari saqlanadi)
+docker compose stop
+
+# Qayta ishga tushirish
+docker compose start
+
+# Bitta servisni qayta ishga tushirish
+docker compose restart app
+
+# Kod o'zgarganda qayta build + ishga tushirish
+docker compose up -d --build
+
+# Faqat app servisini qayta build
+docker compose up -d --build app
+```
+
+**Muhim:** Kod o'zgarganda (`src/` ichidagi `.ts` fayllar) konteyner avtomatik yangilanmaydi — `docker compose up -d --build` kerak. Docker image ichida `dist/` compiled kod saqlanadi.
+
+`.env` o'zgarganda ham app konteynerini qayta ishga tushiring:
+
+```bash
+docker compose up -d --build app
+```
+
+### Konteyner ichida buyruqlar
+
+```bash
+# Demo ma'lumotlar (tenant, kassir, mahsulotlar)
 docker compose exec app npm run db:seed:prod
+
+# Migration holati
+docker compose exec app npm run migration:show
+
+# Muhit o'zgaruvchisini tekshirish
+docker compose exec app printenv PAYMENT_WEBHOOK_SECRET
+
+# App konteyneriga shell
+docker compose exec app sh
 ```
 
-### 4. To'xtatish
+### To'xtatish va tozalash
 
 ```bash
+# Konteynerlarni o'chirish (volume saqlanadi)
 docker compose down
-docker compose down -v   # DB bilan to'liq tozalash
+
+# Konteynerlar + DB volume (barcha ma'lumotlar yo'qoladi)
+docker compose down -v
+```
+
+`down -v` dan keyin qayta ishga tushirsangiz, migration va super-admin qayta yaratiladi.
+
+Volume nomini ko'rish:
+
+```bash
+docker compose config --volumes
+docker volume ls | grep postgres
+```
+
+### Payment webhook (Docker ichida)
+
+Webhook imzosi `.env` dagi `PAYMENT_WEBHOOK_SECRET` bilan hisoblanadi. Script ham shu fayldan o'qiydi:
+
+```bash
+node scripts/local/generate-webhook-signature.js --eventId=evt_001 --orderId=1
+```
+
+Chiqgan **curl** buyrug'ini to'liq nusxalab ishlating (imzoni qo'lda yozmang — 64 belgili hex bo'lishi kerak).
+
+Swagger orqali test qilsangiz, request body **bitta qatorli** JSON bo'lishi kerak (script chiqarganidek):
+
+```json
+{"eventId":"evt_001","orderId":1,"status":"paid"}
+```
+
+### Tez-tez uchraydigan muammolar
+
+| Muammo | Sabab | Yechim |
+|--------|-------|--------|
+| `Invalid webhook signature` | Imzo noto'g'ri yoki body formati farq qiladi | Script chiqargan curl ni copy-paste qiling |
+| Port 3000 band | Boshqa jarayon portni egallagan | `.env` da `APP_PORT` o'zgartiring, `docker-compose.yml` da `ports: '3001:3000'` |
+| Kod o'zgarishlari ko'rinmaydi | Eski image ishlayapti | `docker compose up -d --build` |
+| DB ulanish xatosi | `DB_URL` da `localhost` yozilgan | Hostni `postgres` qiling |
+| Eski/corrupt DB | Volume eski holatda | `docker compose down -v` keyin qayta `up` |
+
+### Docker arxitekturasi
+
+```
+Host (sizning kompyuteringiz)
+├── postgres (postgres:16-alpine)
+│   └── volume: postgres_data → /var/lib/postgresql/data
+└── app (NestJS, port 3000:3000)
+    ├── .env dan muhit o'zgaruvchilari
+    └── postgres:5432 ga ulanadi
 ```
 
 ## Lokal development
